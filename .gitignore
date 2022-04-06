@@ -1,3 +1,7 @@
+TTGO-T-Display/build
+.vscode
+TTGO-T-Display/other
+
 # Prerequisites
 *.d
 
