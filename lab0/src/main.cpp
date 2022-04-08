@@ -6,7 +6,7 @@
 Servo myservo; // create servo object to control a servo
 
 int photoresistor_pin = 2;
-int servo_pin = -1;
+int servo_pin = 17;
 
 uint16_t minimum = 4096;
 uint16_t maximum = 0;
@@ -17,7 +17,7 @@ void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
   pinMode(photoresistor_pin, INPUT);
-  myservo.attach(17); // attaches the servo on port 17 to the servo object
+  myservo.attach(servo_pin); // attaches the servo on port 17 to the servo object
 
 }
 
@@ -41,14 +41,20 @@ void loop() {
     Serial.println(light);
 
   }else {
-    int light = analogRead(photoresistor_pin); // 12 bit digital value (0-4095)
+    int light = analogRead(photoresistor_pin) - minimum; // 12 bit digital value (0-4095)
 
+    if (light < 0) {
+      light = 0;
+    }
     // 180, 900, 540 -> 540 * 360/(900-180)
 
-    uint16_t angle = light *179 / (maximum - minimum);
-    if (angle > 179) {
-      angle = 0;
-    }
+    uint16_t angle = light*179 / (maximum - minimum);
+    // if (angle > 179) {
+    //   angle = 0;
+    // }
+
+    // Serial.printf("%d, %d", )
+
     myservo.write(angle);
     delay(10);
   }
