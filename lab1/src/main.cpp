@@ -10,26 +10,17 @@
 TFT_eSPI tft = TFT_eSPI();
 char buf[6];
 
-// Reset Pin is used for I2C or SPI
-#define CAP1188_RESET  9
-
-// CS pin is used for software or hardware SPI
-#define CAP1188_CS  10
-
-// These are defined for software SPI, for hardware SPI, check your 
-// board's SPI pins in the Arduino documentation
-#define CAP1188_MOSI  11
-#define CAP1188_MISO  12
-#define CAP1188_CLK  13
+#define CAP1188_RESET  9 // Not used
+#define CAP1188_CS  26
+#define CAP1188_MOSI  32
+#define CAP1188_MISO  33
+#define CAP1188_CLK  25
 
 // I2C, connect SDA to your Arduino's SDA pin, SCL to SCL pin
-Adafruit_CAP1188 cap = Adafruit_CAP1188();
-
-// Hardware SPI, CS pin & reset pin 
-// Adafruit_CAP1188 cap = Adafruit_CAP1188(CAP1188_CS, CAP1188_RESET);
+// Adafruit_CAP1188 cap = Adafruit_CAP1188();
 
 // Software SPI: clock, miso, mosi, cs, reset
-// Adafruit_CAP1188 cap = Adafruit_CAP1188(CAP1188_CLK, CAP1188_MISO, CAP1188_MOSI, CAP1188_CS, CAP1188_RESET);
+Adafruit_CAP1188 cap = Adafruit_CAP1188(CAP1188_CLK, CAP1188_MISO, CAP1188_MOSI, CAP1188_CS, CAP1188_RESET);
 
 void setup() {
   // Serial console
@@ -41,21 +32,13 @@ void setup() {
   tft.fillScreen(0x0000);
   tft.setTextSize(5);
 
-  // Touch Sensor (I2C)
+  // Touch Sensor
   Serial.println("CAP1188 test!");
   if (!cap.begin()) {
     Serial.println("CAP1188 not found");
     while (1);
   }
   Serial.println("CAP1188 found!");
-
-  // Touch Sensor (SPI)
-
-
-
-
-  
-
 }
 
 void loop() {
