@@ -19,8 +19,8 @@ char buf[3] = "-1";
 #define CAP1188_MOSI 32
 #define CAP1188_CS 26
 #define CAP1188_RESET -1 // Not used
-// Adafruit_CAP1188 cap = Adafruit_CAP1188(); // I2C
-Adafruit_CAP1188 cap = Adafruit_CAP1188(CAP1188_CLK, CAP1188_MISO, CAP1188_MOSI, CAP1188_CS, CAP1188_RESET); // SPI
+Adafruit_CAP1188 cap = Adafruit_CAP1188(); // I2C
+// Adafruit_CAP1188 cap = Adafruit_CAP1188(CAP1188_CLK, CAP1188_MISO, CAP1188_MOSI, CAP1188_CS, CAP1188_RESET); // SPI
 
 /* Buttons */
 #include "Button2.h"
