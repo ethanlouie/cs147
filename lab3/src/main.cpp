@@ -1,7 +1,8 @@
 #include <WiFi.h>
 #include <HttpClient.h>
-#include <Wire.h>
-#include <SPI.h>
+#include <Adafruit_AHTX0.h>
+Adafruit_AHTX0 aht;
+
 
 // This example downloads the URL "http://arduino.cc/"
 
@@ -9,18 +10,30 @@ char ssid[] = "UCInet Mobile Access";    // your network SSID (name)
 char pass[] = ""; // your network password (use for WPA, or use as key for WEP)
 
 // Name of the server we want to connect to
-const char kHostname[] = "worldtimeapi.org";
+const char kHostname[] = "13.57.25.227";
 // Path to download (this is the bit after the hostname in the URL
 // that you want to download
-const char kPath[] = "/api/timezone/Europe/London.txt";
+const char kPath[] = "/?temp=19&humidity=6";
 
 // Number of milliseconds to wait without receiving any data before we give up
 const int kNetworkTimeout = 30*1000;
 // Number of milliseconds to wait if no data is available before trying again
 const int kNetworkDelay = 1000;
 
+
+
+
 void setup() {
   Serial.begin(9600);
+
+  // Set up temp/humidity sensor
+  Serial.println("Adafruit AHT10/AHT20 demo!");
+
+  if (! aht.begin()) {
+    Serial.println("Could not find AHT? Check wiring");
+    while (1) delay(10);
+  }
+  Serial.println("AHT10 or AHT20 found");
 
   // We start by connecting to a WiFi network
   delay(1000);
@@ -45,13 +58,20 @@ void setup() {
 }
 
 void loop() {
+  // print temp/humidity to console
+  sensors_event_t humidity, temp;
+  aht.getEvent(&humidity, &temp);// populate temp and humidity objects with fresh data
+  Serial.print("Temperature: "); Serial.print(temp.temperature); Serial.println(" degrees C");
+  Serial.print("Humidity: "); Serial.print(humidity.relative_humidity); Serial.println("% rH");
 
+
+  // wifi things
   int err =0;
   
   WiFiClient c;
   HttpClient http(c);
   
-  err = http.get(kHostname, kPath);
+  err = http.get(kHostname, 5000, kPath);
   if (err == 0)
   {
     Serial.println("startedRequest ok");
@@ -122,36 +142,3 @@ void loop() {
   // And just stop, now that we've tried a download
   while(1);
 }
-
-
-
-// #include <Adafruit_AHTX0.h>
-// Adafruit_AHTX0 aht;
-
-// void setup() {
-//   // test LEDs
-//   pinMode(12, OUTPUT); 
-//   pinMode(13, OUTPUT); 
-//   pinMode(15, OUTPUT);
-//   digitalWrite(12, HIGH);
-//   digitalWrite(13, HIGH);
-//   digitalWrite(15, HIGH);
-
-//   Serial.begin(9600);
-//   Serial.println("Adafruit AHT10/AHT20 demo!");
-
-//   if (! aht.begin()) {
-//     Serial.println("Could not find AHT? Check wiring");
-//     while (1) delay(10);
-//   }
-//   Serial.println("AHT10 or AHT20 found");
-// }
-
-// void loop() {
-//   sensors_event_t humidity, temp;
-//   aht.getEvent(&humidity, &temp);// populate temp and humidity objects with fresh data
-//   Serial.print("Temperature: "); Serial.print(temp.temperature); Serial.println(" degrees C");
-//   Serial.print("Humidity: "); Serial.print(humidity.relative_humidity); Serial.println("% rH");
-
-//   delay(500);
-// }
