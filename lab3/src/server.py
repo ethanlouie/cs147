@@ -3,7 +3,8 @@ from flask import Flask
 from flask import request
 
 # print public IP address
-print(f'Public IP: {get('https://api.ipify.org').text}')
+ip = get('https://api.ipify.org').text
+print(f'\nPUBLIC IP: {ip}\n')
 
 # Flask Server
 app = Flask(__name__)
