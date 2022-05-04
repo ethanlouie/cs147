@@ -1,6 +1,7 @@
 TTGO-T-Display/build
 .vscode
 TTGO-T-Display/other
+__pycache__/
 
 # Prerequisites
 *.d
