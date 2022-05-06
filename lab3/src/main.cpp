@@ -1,37 +1,32 @@
 #include <WiFi.h>
 #include <HttpClient.h>
 #include <Adafruit_AHTX0.h>
+#include <stdio.h>
 Adafruit_AHTX0 aht;
+WiFiClient c;
+HttpClient http(c);
 
-
-// This example downloads the URL "http://arduino.cc/"
-
-char ssid[] = "UCInet Mobile Access";    // your network SSID (name) 
-char pass[] = ""; // your network password (use for WPA, or use as key for WEP)
-
-// Name of the server we want to connect to
+char ssid[] = "UCInet Mobile Access"; // your network SSID (name)
+char pass[] = "";                     // your network password (use for WPA, or use as key for WEP)
 const char kHostname[] = "13.57.25.227";
-// Path to download (this is the bit after the hostname in the URL
-// that you want to download
-const char kPath[] = "/?temp=19&humidity=6";
+char tempStr[] = "/?temp=";
+char humidStr[] = "&humidity=";
 
 // Number of milliseconds to wait without receiving any data before we give up
-const int kNetworkTimeout = 30*1000;
+const int kNetworkTimeout = 30 * 1000;
 // Number of milliseconds to wait if no data is available before trying again
 const int kNetworkDelay = 1000;
 
-
-
-
-void setup() {
+void setup()
+{
   Serial.begin(9600);
 
   // Set up temp/humidity sensor
-  Serial.println("Adafruit AHT10/AHT20 demo!");
-
-  if (! aht.begin()) {
+  if (!aht.begin())
+  {
     Serial.println("Could not find AHT? Check wiring");
-    while (1) delay(10);
+    while (1)
+      delay(10);
   }
   Serial.println("AHT10 or AHT20 found");
 
@@ -44,9 +39,10 @@ void setup() {
 
   WiFi.begin(ssid, pass);
 
-  while (WiFi.status() != WL_CONNECTED) {
-      delay(500);
-      Serial.print(".");
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
   }
 
   Serial.println("");
@@ -57,20 +53,25 @@ void setup() {
   Serial.println(WiFi.macAddress());
 }
 
-void loop() {
+void loop()
+{
   // print temp/humidity to console
   sensors_event_t humidity, temp;
-  aht.getEvent(&humidity, &temp);// populate temp and humidity objects with fresh data
-  Serial.print("Temperature: "); Serial.print(temp.temperature); Serial.println(" degrees C");
-  Serial.print("Humidity: "); Serial.print(humidity.relative_humidity); Serial.println("% rH");
+  aht.getEvent(&humidity, &temp); // populate temp and humidity objects with fresh data
+  Serial.print("Temperature: ");
+  Serial.print(temp.temperature);
+  Serial.println(" degrees C");
+  Serial.print("Humidity: ");
+  Serial.print(humidity.relative_humidity);
+  Serial.println("% rH");
 
+  // format kPath
+  char kPath[50];
+  sprintf(kPath, "/?temp=%f&humidity=%f", temp.temperature, humidity.relative_humidity);
+  Serial.print(kPath);
 
   // wifi things
-  int err =0;
-  
-  WiFiClient c;
-  HttpClient http(c);
-  
+  int err = 0;
   err = http.get(kHostname, 5000, kPath);
   if (err == 0)
   {
@@ -94,30 +95,30 @@ void loop() {
         Serial.println(bodyLen);
         Serial.println();
         Serial.println("Body returned follows:");
-      
+
         // Now we've got to the body, so we can print it out
         unsigned long timeoutStart = millis();
         char c;
         // Whilst we haven't timed out & haven't reached the end of the body
-        while ( (http.connected() || http.available()) &&
-               ((millis() - timeoutStart) < kNetworkTimeout) )
+        while ((http.connected() || http.available()) &&
+               ((millis() - timeoutStart) < kNetworkTimeout))
         {
-            if (http.available())
-            {
-                c = http.read();
-                // Print out this character
-                Serial.print(c);
-               
-                bodyLen--;
-                // We read something, reset the timeout counter
-                timeoutStart = millis();
-            }
-            else
-            {
-                // We haven't got any data, so let's pause to allow some to
-                // arrive
-                delay(kNetworkDelay);
-            }
+          if (http.available())
+          {
+            c = http.read();
+            // Print out this character
+            Serial.print(c);
+
+            bodyLen--;
+            // We read something, reset the timeout counter
+            timeoutStart = millis();
+          }
+          else
+          {
+            // We haven't got any data, so let's pause to allow some to
+            // arrive
+            delay(kNetworkDelay);
+          }
         }
       }
       else
@@ -127,7 +128,7 @@ void loop() {
       }
     }
     else
-    {    
+    {
       Serial.print("Getting response failed: ");
       Serial.println(err);
     }
@@ -139,6 +140,6 @@ void loop() {
   }
   http.stop();
 
-  // And just stop, now that we've tried a download
-  while(1);
+  delay(1000);
 }
+
