@@ -1,181 +1,131 @@
 #include <Arduino.h>
 #include "Wire.h"
 #include "SPI.h"
+#define RED_PIN 12
 
-#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+#include "SparkFunLSM6DSO.h"
+LSM6DSO myIMU; // Default constructor is I2C, addr 0x6B
+
 #include <BLEDevice.h>
 #include <BLEUtils.h>
 #include <BLEServer.h>
-#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
- 
-class MyCallbacks: public BLECharacteristicCallbacks {
-   void onWrite(BLECharacteristic *pCharacteristic) {
-     std::string value = pCharacteristic->getValue();
- 
-     if (value.length() > 0) {
-       Serial.println("*********");
-       Serial.print("New value: ");
-       for (int i = 0; i < value.length(); i++)
-         Serial.print(value[i]);
- 
-       Serial.println();
-       Serial.println("*********");
-     }
-   }
+
+int stepCount = 0;
+BLECharacteristic *pCharacteristic = NULL;
+char buf[10];
+
+void readGyroscopeTask(void *parameter)
+{
+  for (;;)
+  {
+    Serial.print("\nAccelerometer:\n");
+    Serial.print(" X = ");
+    Serial.println(myIMU.readFloatAccelX(), 3);
+    Serial.print(" Y = ");
+    Serial.println(myIMU.readFloatAccelY(), 3);
+    Serial.print(" Z = ");
+    Serial.println(myIMU.readFloatAccelZ(), 3);
+
+    Serial.print("\nGyroscope:\n");
+    Serial.print(" X = ");
+    Serial.println(myIMU.readFloatGyroX(), 3);
+    Serial.print(" Y = ");
+    Serial.println(myIMU.readFloatGyroY(), 3);
+    Serial.print(" Z = ");
+    Serial.println(myIMU.readFloatGyroZ(), 3);
+
+    vTaskDelay(1000);
+  }
+}
+
+class MyCallbacks : public BLECharacteristicCallbacks
+{
+  void onWrite(BLECharacteristic *pCharacteristic)
+  {
+    std::string value = pCharacteristic->getValue();
+
+    if (value == "ledon")
+    {
+      digitalWrite(RED_PIN, HIGH);
+    }
+    if (value == "ledoff")
+    {
+      digitalWrite(RED_PIN, LOW);
+    }
+
+    if (value.length() > 0)
+    {
+      Serial.println("*********");
+      Serial.print("New value: ");
+      for (int i = 0; i < value.length(); i++)
+        Serial.print(value[i]);
+
+      Serial.println();
+      Serial.println("*********");
+    }
+  }
+
+  void onRead(BLECharacteristic *pCharacteristic)
+  {
+    Serial.println("READ FROM BLE");
+
+    sprintf(buf, "steps: %d", stepCount);
+    pCharacteristic->setValue(buf);
+
+    // pCharacteristic->notify();
+  }
 };
- 
-void setup() {
- Serial.begin(9200);
- 
- Serial.println("1- Download and install an BLE scanner app in your phone");
- Serial.println("2- Scan for BLE devices in the app");
- Serial.println("3- Connect to MyESP32");
- Serial.println("4- Go to CUSTOM CHARACTERISTIC in CUSTOM SERVICE and write something");
- Serial.println("5- See the magic =)");
- 
- BLEDevice::init("MyESP32");
- BLEServer *pServer = BLEDevice::createServer();
- 
- BLEService *pService = pServer->createService(SERVICE_UUID);
- 
- BLECharacteristic *pCharacteristic = pService->createCharacteristic(
-                                        CHARACTERISTIC_UUID,
-                                        BLECharacteristic::PROPERTY_READ |
-                                        BLECharacteristic::PROPERTY_WRITE
-                                      );
- 
- pCharacteristic->setCallbacks(new MyCallbacks());
- 
- pCharacteristic->setValue("Hello World");
- pService->start();
- 
- BLEAdvertising *pAdvertising = pServer->getAdvertising();
- pAdvertising->start();
+
+void setup()
+{
+  Serial.begin(9200);
+  delay(500);
+
+  // Red LED
+  pinMode(RED_PIN, OUTPUT);
+
+  // Gyroscope
+  Wire.begin();
+  delay(10);
+  if (myIMU.begin())
+    Serial.println("Ready.");
+  else
+  {
+    Serial.println("Could not connect to IMU.");
+    Serial.println("Freezing");
+  }
+  if (myIMU.initialize(BASIC_SETTINGS))
+    Serial.println("Loaded Settings.");
+  xTaskCreate(
+      readGyroscopeTask,     // Function that should be called
+      "read gyroscope data", // Name of the task (for debugging)
+      2000,                  // Stack size (bytes)
+      NULL,                  // Parameter to pass
+      1,                     // Task priority
+      NULL                   // Task handle
+  );
+
+  // Bluetooth
+  BLEDevice::init("Group19");
+  BLEServer *pServer = BLEDevice::createServer();
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+  pCharacteristic = pService->createCharacteristic(
+      CHARACTERISTIC_UUID,
+      BLECharacteristic::PROPERTY_READ |
+          BLECharacteristic::PROPERTY_WRITE);
+  pCharacteristic->setCallbacks(new MyCallbacks());
+  pCharacteristic->setValue("Hello World");
+  pService->start();
+
+  BLEAdvertising *pAdvertising = pServer->getAdvertising();
+  pAdvertising->start();
 }
- 
-void loop() {
- delay(2000);
+
+void loop()
+{
+  stepCount++;
+
+  delay(1000);
 }
-
-
-
-
-
-
-
-
-
-// #include <BLEDevice.h>
-// #include <BLEUtils.h>
-// #include <BLEServer.h>
-// #define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-// #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
- 
-// void setup() {
-//  Serial.begin(9200);
-//  Serial.println("Starting BLE work!");
- 
-//  BLEDevice::init("CS147");
-//  BLEServer *pServer = BLEDevice::createServer();
-//  BLEService *pService = pServer->createService(SERVICE_UUID);
-//  BLECharacteristic *pCharacteristic = pService->createCharacteristic(
-//                                         CHARACTERISTIC_UUID,
-//                                         BLECharacteristic::PROPERTY_READ |
-//                                         BLECharacteristic::PROPERTY_WRITE
-//                                       );
- 
-//  pCharacteristic->setValue("0");
-//  pService->start();
-//  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-//  pAdvertising->addServiceUUID(SERVICE_UUID);
-//  pAdvertising->setScanResponse(true);
-//  pAdvertising->setMinPreferred(0x0); 
-//  pAdvertising->setMinPreferred(0x12);
-//  BLEDevice::startAdvertising();
-//  Serial.println("Characteristic defined! Now you can read it in your phone!");
-// }
-// void loop() {
-//  delay(2000);
-// }
-
-
-
-
-
-
-
-
-// /******************************************************************************
-// Basic_Readings.ino
-
-// https://github.com/sparkfun/SparkFun_Qwiic_6DoF_LSM6DSO
-// https://github.com/sparkfun/SparkFun_Qwiic_6DoF_LSM6DSO_Arduino_Library
-
-// Description:
-// Most basic example of use.
-
-// Example using the LSM6DSO with basic settings.  This sketch collects Gyro and
-// Accelerometer data every second, then presents it on the serial monitor.
-
-// Development environment tested:
-// Arduino IDE 1.8.2
-
-// This code is released under the [MIT License](http://opensource.org/licenses/MIT).
-// Please review the LICENSE.md file included with this example. If you have any questions 
-// or concerns with licensing, please contact techsupport@sparkfun.com.
-// Distributed as-is; no warranty is given.
-// ******************************************************************************/
-
-// #include "SparkFunLSM6DSO.h"
-// #include "Wire.h"
-// //#include "SPI.h"
-
-// LSM6DSO myIMU; //Default constructor is I2C, addr 0x6B
-
-// void setup() {
-
-
-//   Serial.begin(9200);
-//   delay(500); 
-  
-//   Wire.begin();
-//   delay(10);
-//   if( myIMU.begin() )
-//     Serial.println("Ready.");
-//   else { 
-//     Serial.println("Could not connect to IMU.");
-//     Serial.println("Freezing");
-//   }
-
-//   if( myIMU.initialize(BASIC_SETTINGS) )
-//     Serial.println("Loaded Settings.");
-
-// }
-
-
-// void loop()
-// {
-//   //Get all parameters
-//   Serial.print("\nAccelerometer:\n");
-//   Serial.print(" X = ");
-//   Serial.println(myIMU.readFloatAccelX(), 3);
-//   Serial.print(" Y = ");
-//   Serial.println(myIMU.readFloatAccelY(), 3);
-//   Serial.print(" Z = ");
-//   Serial.println(myIMU.readFloatAccelZ(), 3);
-
-//   Serial.print("\nGyroscope:\n");
-//   Serial.print(" X = ");
-//   Serial.println(myIMU.readFloatGyroX(), 3);
-//   Serial.print(" Y = ");
-//   Serial.println(myIMU.readFloatGyroY(), 3);
-//   Serial.print(" Z = ");
-//   Serial.println(myIMU.readFloatGyroZ(), 3);
-
-//   Serial.print("\nThermometer:\n");
-//   Serial.print(" Degrees F = ");
-//   Serial.println(myIMU.readTempF(), 3);
-  
-//   delay(1000);
-// }
