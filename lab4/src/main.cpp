@@ -5,6 +5,7 @@
 
 #include "SparkFunLSM6DSO.h"
 LSM6DSO myIMU; // Default constructor is I2C, addr 0x6B
+bool z_pos = true;
 
 #include <BLEDevice.h>
 #include <BLEUtils.h>
@@ -15,30 +16,6 @@ LSM6DSO myIMU; // Default constructor is I2C, addr 0x6B
 int stepCount = 0;
 BLECharacteristic *pCharacteristic = NULL;
 char buf[10];
-
-void readGyroscopeTask(void *parameter)
-{
-  for (;;)
-  {
-    Serial.print("\nAccelerometer:\n");
-    Serial.print(" X = ");
-    Serial.println(myIMU.readFloatAccelX(), 3);
-    Serial.print(" Y = ");
-    Serial.println(myIMU.readFloatAccelY(), 3);
-    Serial.print(" Z = ");
-    Serial.println(myIMU.readFloatAccelZ(), 3);
-
-    Serial.print("\nGyroscope:\n");
-    Serial.print(" X = ");
-    Serial.println(myIMU.readFloatGyroX(), 3);
-    Serial.print(" Y = ");
-    Serial.println(myIMU.readFloatGyroY(), 3);
-    Serial.print(" Z = ");
-    Serial.println(myIMU.readFloatGyroZ(), 3);
-
-    vTaskDelay(1000);
-  }
-}
 
 class MyCallbacks : public BLECharacteristicCallbacks
 {
@@ -98,14 +75,6 @@ void setup()
   }
   if (myIMU.initialize(BASIC_SETTINGS))
     Serial.println("Loaded Settings.");
-  xTaskCreate(
-      readGyroscopeTask,     // Function that should be called
-      "read gyroscope data", // Name of the task (for debugging)
-      2000,                  // Stack size (bytes)
-      NULL,                  // Parameter to pass
-      1,                     // Task priority
-      NULL                   // Task handle
-  );
 
   // Bluetooth
   BLEDevice::init("Group19");
@@ -125,7 +94,19 @@ void setup()
 
 void loop()
 {
-  stepCount++;
+  float z = myIMU.readFloatGyroZ();
+  Serial.println(z);
+  // Serial.println(abs(z));
+  // if values greater than abs(5), increment
 
-  delay(1000);
+
+
+  if (abs(z) > 5 && ((z > 0 && !z_pos) || (z < 0 && z_pos)))
+  {
+    stepCount++;
+    Serial.printf("Step Count: %d\n", stepCount);
+    z_pos = !z_pos;
+  }
+
+  delay(500);
 }
