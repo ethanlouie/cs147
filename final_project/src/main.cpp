@@ -1,211 +1,160 @@
 #include <Arduino.h>
 #include <stdio.h>
-
 #define RED_PIN 12
 #define BLUE_PIN 13
 #define GREEN_PIN 15
 #define POTENTIOMETER_PIN 36
 
-void toggleRedLED(void *parameter)
-{
-  for (;;)
-  { // infinite loop
-    // Turn the LED on
-    digitalWrite(RED_PIN, HIGH);
-    // Pause the task for 500ms
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-    // Turn the LED off
-    digitalWrite(RED_PIN, LOW);
-    // Pause the task again for 500ms
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-  }
-}
-
-void toggleBlueLED(void *parameter)
-{
-  for (;;)
-  { // infinite loop
-    // Turn the LED on
-    digitalWrite(BLUE_PIN, HIGH);
-    // Pause the task for 500ms
-    vTaskDelay(250 / portTICK_PERIOD_MS);
-    // Turn the LED off
-    digitalWrite(BLUE_PIN, LOW);
-    // Pause the task again for 500ms
-    vTaskDelay(250 / portTICK_PERIOD_MS);
-  }
-}
-
-void toggleGreenLED(void *parameter)
-{
-  for (;;)
-  { // infinite loop
-    // Turn the LED on
-    digitalWrite(GREEN_PIN, HIGH);
-    // Pause the task for 500ms
-    vTaskDelay(300 / portTICK_PERIOD_MS);
-    // Turn the LED off
-    digitalWrite(GREEN_PIN, LOW);
-    // Pause the task again for 500ms
-    vTaskDelay(300 / portTICK_PERIOD_MS);
-  }
-}
-
-// The dial is a jpeg image, the needle is created using a rotated
-// Sprite. The example operates by reading blocks of pixels from the
-// TFT, thus the TFT setup must support reading from the TFT CGRAM.
-
-// The sketch operates by creating a copy of the screen block where
-// the needle will be drawn, the needle is then drawn on the screen.
-// When the needle moves, the original copy of the screen area is
-// pushed to the screen to over-write the needle graphic. A copy
-// of the screen where the new position will be drawn is then made
-// before drawing the needle in the new position. This technique
-// allows the needle to move over other screen graphics.
-
-// The sketch calculates the size of the buffer memory required and
-// reserves the memory for the TFT block copy.
-
-// Created by Bodmer 17/3/20 as an example to the TFT_eSPI library:
-// https://github.com/Bodmer/TFT_eSPI
-
-#define NEEDLE_LENGTH 35         // Visible length
-#define NEEDLE_WIDTH 5           // Width of needle - make it an odd number
-#define NEEDLE_RADIUS 90         // Radius at tip
-#define NEEDLE_COLOR1 TFT_MAROON // Needle periphery colour
-#define NEEDLE_COLOR2 TFT_RED    // Needle centre colour
-#define DIAL_CENTRE_X 120
-#define DIAL_CENTRE_Y 120
+#include <Adafruit_AHTX0.h>
+Adafruit_AHTX0 aht;
+float degreesF = 0;
+float humidity = 0;
 
 #include <TFT_eSPI.h>
-TFT_eSPI tft = TFT_eSPI();
-TFT_eSprite needle = TFT_eSprite(&tft); // Sprite object for needle
-TFT_eSprite spr = TFT_eSprite(&tft);    // Sprite for meter reading
-
-// Jpeg image array attached to this sketch
-#include "dial.h"
-
-// Include the jpeg decoder library
 #include <TJpg_Decoder.h>
+TFT_eSPI tft = TFT_eSPI();
 
-// Font attached to this sketch
-#include "NotoSansBold36.h"
-#define AA_FONT_LARGE NotoSansBold36
+#define MIN_TEMP 65
+#define MAX_TEMP 85
+int desired_temp = 72;
+int old_desired_temp = 0;
+int old_potentiometer_value = 0;
+int raw_potentiometer = 0;
+int potentiometer_value = 0; // value from the potentiometer
+char buffer[20];             // helper buffer for converting values into C-style string (array of chars)
+int string_width;            // helper value for string widths
+int string_height;
 
-uint16_t *tft_buffer;
-bool buffer_loaded = false;
-uint16_t spr_width = 0;
-uint16_t bg_color = 0;
+float pixel_x = 0; // x pos for pixel
+float pixel_y = 0; // y pos for pixel
+float line_x = 0;  // x pos for line end
+float line_y = 0;  // y pos for line end
+float text_x = 0;  // x pos for text
+float text_y = 0;  // y pos for text
 
-// =======================================================================================
-// This function will be called during decoding of the jpeg file
-// =======================================================================================
-bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap)
+int center_x = 119;     // x center of the knob
+int center_y = 150;     // 200;     // y center of the knob (outside of the screen)
+int radius_pixel = 115; // radius for pixel tickmarks
+int radius_line = 110;  // radius for medium tickmark
+int RADIUS_LARGE = 105; // radius for large tickmark
+int radius_text = 90;   // radius for text
+
+int angle;      // angle for the individual tickmarks
+int tick_value; // numeric value for the individual tickmarks
+
+byte precalculated_x_radius_pixel[180]; // lookup table to prevent expensive sin/cos calculations
+byte precalculated_y_radius_pixel[180]; // lookup table to prevent expensive sin/cos calculations
+
+#include <WiFi.h>
+#include <HttpClient.h>
+WiFiClient c;
+HttpClient http(c);
+
+char ssid[] = "Packet_Dispensary";    // your network SSID (name)
+char pass[] = "passwordalllowercase"; // your network password (use for WPA, or use as key for WEP)
+const char kHostname[] = "192.168.1.14";//13.57.25.227";
+char tempStr[] = "/?temp=";
+char humidStr[] = "&humidity=";
+
+// Number of milliseconds to wait without receiving any data before we give up
+const int kNetworkTimeout = 30 * 1000;
+// Number of milliseconds to wait if no data is available before trying again
+const int kNetworkDelay = 1000;
+
+void wifiUpload(void *parameter)
 {
-  // Stop further decoding as image is running off bottom of screen
-  if (y >= tft.height())
-    return 0;
-
-  // This function will clip the image block rendering automatically at the TFT boundaries
-  tft.pushImage(x, y, w, h, bitmap);
-
-  // Return 1 to decode next block
-  return 1;
-}
-
-// =======================================================================================
-// Create the needle Sprite
-// =======================================================================================
-void createNeedle(void)
-{
-  needle.setColorDepth(16);
-  needle.createSprite(NEEDLE_WIDTH, NEEDLE_LENGTH); // create the needle Sprite
-
-  needle.fillSprite(TFT_BLACK); // Fill with black
-
-  // Define needle pivot point relative to top left corner of Sprite
-  uint16_t piv_x = NEEDLE_WIDTH / 2; // pivot x in Sprite (middle)
-  uint16_t piv_y = NEEDLE_RADIUS;    // pivot y in Sprite
-  needle.setPivot(piv_x, piv_y);     // Set pivot point in this Sprite
-
-  // Draw the red needle in the Sprite
-  needle.fillRect(0, 0, NEEDLE_WIDTH, NEEDLE_LENGTH, TFT_MAROON);
-  needle.fillRect(1, 1, NEEDLE_WIDTH - 2, NEEDLE_LENGTH - 2, TFT_RED);
-
-  // Bounding box parameters to be populated
-  int16_t min_x;
-  int16_t min_y;
-  int16_t max_x;
-  int16_t max_y;
-
-  // Work out the worst case area that must be grabbed from the TFT,
-  // this is at a 45 degree rotation
-  needle.getRotatedBounds(45, &min_x, &min_y, &max_x, &max_y);
-
-  // Calculate the size and allocate the buffer for the grabbed TFT area
-  tft_buffer = (uint16_t *)malloc(((max_x - min_x) + 2) * ((max_y - min_y) + 2) * 2);
-}
-
-// =======================================================================================
-// Move the needle to a new position
-// =======================================================================================
-void plotNeedle(int16_t angle, uint16_t ms_delay)
-{
-  static int16_t old_angle = -120; // Starts at -120 degrees
-
-  // Bounding box parameters
-  static int16_t min_x;
-  static int16_t min_y;
-  static int16_t max_x;
-  static int16_t max_y;
-
-  if (angle < 0)
-    angle = 0; // Limit angle to emulate needle end stops
-  if (angle > 240)
-    angle = 240;
-
-  angle -= 120; // Starts at -120 degrees
-
-  // Move the needle until new angle reached
-  while (angle != old_angle || !buffer_loaded)
+  for (;;)
   {
 
-    if (old_angle < angle)
-      old_angle++;
-    else
-      old_angle--;
+    // print temp/humidity to console
+    sensors_event_t humidity_event, temp_event;
+    aht.getEvent(&humidity_event, &temp_event); // populate temp and humidity objects with fresh data
+    degreesF = 32 + (temp_event.temperature * 1.8);
+    humidity = humidity_event.relative_humidity;
 
-    // Only plot needle at even values to improve plotting performance
-    if ((old_angle & 1) == 0)
+    Serial.print("Temperature: ");
+    Serial.print(degreesF);
+    Serial.println(" degrees C");
+    Serial.print("Humidity: ");
+    Serial.print(humidity);
+    Serial.println("% rH");
+
+    /* WIFI THINGS */
+    // format kPath
+    char kPath[50];
+    sprintf(kPath, "/?temp=%.1f&humidity=%f", degreesF, humidity);
+    Serial.print(kPath);
+
+    int err = 0;
+    err = http.get(kHostname, 5000, kPath);
+    if (err == 0)
     {
-      if (buffer_loaded)
+      Serial.println("startedRequest ok");
+
+      err = http.responseStatusCode();
+      if (err >= 0)
       {
-        // Paste back the original needle free image area
-        tft.pushRect(min_x, min_y, 1 + max_x - min_x, 1 + max_y - min_y, tft_buffer);
-      }
+        Serial.print("Got status code: ");
+        Serial.println(err);
 
-      if (needle.getRotatedBounds(old_angle, &min_x, &min_y, &max_x, &max_y))
+        // Usually you'd check that the response code is 200 or a
+        // similar "success" code (200-299) before carrying on,
+        // but we'll print out whatever response we get
+
+        err = http.skipResponseHeaders();
+        if (err >= 0)
+        {
+          int bodyLen = http.contentLength();
+          Serial.print("Content length is: ");
+          Serial.println(bodyLen);
+          Serial.println();
+          Serial.println("Body returned follows:");
+
+          // Now we've got to the body, so we can print it out
+          unsigned long timeoutStart = millis();
+          char c;
+          // Whilst we haven't timed out & haven't reached the end of the body
+          while ((http.connected() || http.available()) &&
+                 ((millis() - timeoutStart) < kNetworkTimeout))
+          {
+            if (http.available())
+            {
+              c = http.read();
+              // Print out this character
+              Serial.print(c);
+
+              bodyLen--;
+              // We read something, reset the timeout counter
+              timeoutStart = millis();
+            }
+            else
+            {
+              // We haven't got any data, so let's pause to allow some to
+              // arrive
+              delay(kNetworkDelay);
+            }
+          }
+        }
+        else
+        {
+          Serial.print("Failed to skip response headers: ");
+          Serial.println(err);
+        }
+      }
+      else
       {
-        // Grab a copy of the area before needle is drawn
-        tft.readRect(min_x, min_y, 1 + max_x - min_x, 1 + max_y - min_y, tft_buffer);
-        buffer_loaded = true;
+        Serial.print("Getting response failed: ");
+        Serial.println(err);
       }
-
-      // Draw the needle in the new position, black in needle image is transparent
-      needle.pushRotated(old_angle, TFT_BLACK);
-
-      // Wait before next update
-      delay(ms_delay);
+    }
+    else
+    {
+      Serial.print("Connect failed: ");
+      Serial.println(err);
     }
 
-    // Update the number at the centre of the dial
-    spr.setTextColor(TFT_WHITE, bg_color, true);
-    spr.drawNumber(old_angle + 120, spr_width / 2, spr.fontHeight() / 2);
-    spr.pushSprite(120 - spr_width / 2, 120 - spr.fontHeight() / 2);
-
-    // Slow needle down slightly as it approaches the new position
-    if (abs(old_angle - angle) < 10)
-      ms_delay += ms_delay / 5;
+    http.stop();
+    vTaskDelay(1000);
   }
 }
 
@@ -218,86 +167,179 @@ void setup()
   pinMode(BLUE_PIN, OUTPUT);
   pinMode(GREEN_PIN, OUTPUT);
 
-  xTaskCreate(
-      toggleRedLED,     // Function that should be called
-      "Toggle red LED", // Name of the task (for debugging)
-      1000,             // Stack size (bytes)
-      NULL,             // Parameter to pass
-      1,                // Task priority
-      NULL              // Task handle
-  );
-  xTaskCreate(
-      toggleGreenLED,     // Function that should be called
-      "Toggle green LED", // Name of the task (for debugging)
-      1000,               // Stack size (bytes)
-      NULL,               // Parameter to pass
-      1,                  // Task priority
-      NULL                // Task handle
-  );
-  xTaskCreate(
-      toggleBlueLED,     // Function that should be called
-      "Toggle blue LED", // Name of the task (for debugging)
-      1000,              // Stack size (bytes)
-      NULL,              // Parameter to pass
-      1,                 // Task priority
-      NULL               // Task handle
-  );
+  /* Temp Humidity */
+  if (!aht.begin())
+  {
+    Serial.println("Could not find AHT? Check wiring");
+    while (1)
+      delay(10);
+  }
+  Serial.println("AHT10 or AHT20 found");
 
   /* Display */
-  // The byte order can be swapped (set true for TFT_eSPI)
-  TJpgDec.setSwapBytes(true);
-
-  // The jpeg decoder must be given the exact name of the rendering function above
-  TJpgDec.setCallback(tft_output);
-
   tft.begin();
-  tft.setRotation(0);
+  tft.setRotation(3);
   tft.fillScreen(TFT_BLACK);
 
-  // Draw the dial
-  TJpgDec.drawJpg(0, 0, dial, sizeof(dial));
-  tft.drawCircle(DIAL_CENTRE_X, DIAL_CENTRE_Y, NEEDLE_RADIUS - NEEDLE_LENGTH, TFT_DARKGREY);
+  for (int i = 0; i < 180; i++)
+  { // pre-calculate x and y positions into the look-up tables
+    precalculated_x_radius_pixel[i] = sin(radians(i - 90)) * radius_pixel + center_x;
+    precalculated_y_radius_pixel[i] = -cos(radians(i - 90)) * radius_pixel + center_y;
+  }
 
-  // Load the font and create the Sprite for reporting the value
-  spr.loadFont(AA_FONT_LARGE);
-  spr_width = spr.textWidth("777"); // 7 is widest numeral in this font
-  spr.createSprite(spr_width, spr.fontHeight());
-  bg_color = tft.readPixel(120, 120); // Get colour from dial centre
-  spr.fillSprite(bg_color);
-  spr.setTextColor(TFT_WHITE, bg_color, true);
-  spr.setTextDatum(MC_DATUM);
-  spr.setTextPadding(spr_width);
-  spr.drawNumber(0, spr_width / 2, spr.fontHeight() / 2);
-  spr.pushSprite(DIAL_CENTRE_X - spr_width / 2, DIAL_CENTRE_Y - spr.fontHeight() / 2);
+  // We start by connecting to a WiFi network
+  delay(1000);
+  Serial.println();
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
 
-  // Plot the label text
-  tft.setTextColor(TFT_WHITE, bg_color);
-  tft.setTextDatum(MC_DATUM);
-  tft.drawString("(degrees)", DIAL_CENTRE_X, DIAL_CENTRE_Y + 48, 2);
+  WiFi.begin(ssid, pass);
 
-  // Define where the needle pivot point is on the TFT before
-  // creating the needle so boundary calculation is correct
-  tft.setPivot(DIAL_CENTRE_X, DIAL_CENTRE_Y);
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
+  }
 
-  // Create the needle Sprite
-  createNeedle();
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+  Serial.println("MAC address: ");
+  Serial.println(WiFi.macAddress());
 
-  // Reset needle position to 0
-  plotNeedle(0, 0);
-
-  delay(2000);
+  xTaskCreate(
+      wifiUpload, // Function that should be called
+      "wifi",     // Name of the task (for debugging)
+      3000,       // Stack size (bytes)
+      NULL,       // Parameter to pass
+      1,          // Task priority
+      NULL        // Task handle
+  );
 }
 
 void loop()
 {
-  /* Potentiometer */
+
+  /* Potentiometer serial print*/
   float var = analogRead(POTENTIOMETER_PIN);
   Serial.println(var);
 
-  /* Display */
-  // Plot needle at random angle in range 0 to 240, speed 40ms per increment
-  uint16_t angle = (4095 - var) / 4095 * 120; // random speed in range 0 to 240
-  plotNeedle(angle, 30);
-  // Pause at new position
-  delay(100);
+  /* DISPLAY */
+  raw_potentiometer = analogRead(POTENTIOMETER_PIN);
+
+  // prevent jitter of small changes
+  int delta = abs(raw_potentiometer - old_potentiometer_value);
+  if (delta < 40)
+  {
+    raw_potentiometer = old_potentiometer_value + (delta > 0) - (delta < 0);
+  }
+  old_potentiometer_value = raw_potentiometer;
+
+  // map to percentage and tempurature
+  potentiometer_value = map(raw_potentiometer, 0, 4095, 0, 1000);
+  desired_temp = MIN_TEMP + floor(potentiometer_value / 1000.0 * (MAX_TEMP - MIN_TEMP));
+
+  /* Draw the desired temp on top */
+  if (old_desired_temp != desired_temp)
+  {
+    old_desired_temp = desired_temp;
+
+    tft.setTextSize(3);
+    string_height = tft.fontHeight();
+    sprintf(buffer, "%i%s", desired_temp, " F");
+    string_width = tft.textWidth(buffer); // calculate string width
+
+    tft.fillRoundRect((240 - (string_width + 4)) / 2, 0,
+                      string_width + 4, string_height + 4,
+                      1, TFT_WHITE); // draw background rounded rectangle
+    tft.fillTriangle(119 - 4, string_height,
+                     119 + 4, string_height,
+                     119, string_height + 8,
+                     TFT_WHITE);                          // draw small arrow below the rectangle
+    tft.drawCircle(130, string_height / 4, 4, TFT_BLACK); // degrees symbol
+    tft.drawCircle(130, string_height / 4, 3, TFT_BLACK); // degrees symbol
+
+    tft.setTextColor(TFT_BLACK);                         // set color to black
+    tft.drawString(buffer, (240 - string_width) / 2, 2); // draw the value on top of the display
+  }
+
+  /* Draw tickmarks */
+
+  tft.fillRect(0, string_height + 9, 240, 135, TFT_BLACK);          // partially clear screen
+  tft.setTextColor(TFT_WHITE);                                      // set color to black
+  tft.setTextSize(2);                                               // set smaller font for tickmarks
+  for (int i = -80; i <= 80; i = i + 3)                             /////////////////// EDIT THIS LATER /////////////////////////////////////////
+  {                                                                 // only try to calculate tickmarks that would end up be displayed
+    angle = i + ((potentiometer_value * 3) / 10) % 3;               // final angle for the tickmark
+    tick_value = round((potentiometer_value / 10.0) + angle / 3.0); // get number value for each tickmark
+
+    pixel_x = precalculated_x_radius_pixel[angle + 90]; // get x value from lookup table
+    pixel_y = precalculated_y_radius_pixel[angle + 90]; // get y value from lookup table
+
+    if (pixel_x < 0 || pixel_x > 240 || pixel_y < 0 || pixel_y > 135 || tick_value < 0 || tick_value > 100)
+      continue; // only draw pixels inside of the screen, and tickmarks between 0-100%
+
+    if (tick_value % (100 / (MAX_TEMP - MIN_TEMP)) == 0)
+    {
+      tick_value = map(tick_value, 0, 100, MIN_TEMP, MAX_TEMP); // change to degrees
+      if (tick_value == MIN_TEMP || tick_value == MAX_TEMP || tick_value % 5 == 0)
+      {
+        // draw text
+        text_x = sin(radians(angle)) * radius_text + center_x;     // calculate x pos for the text
+        text_y = -cos(radians(angle)) * radius_text + center_y;    // calculate y pos for the text
+        itoa(tick_value, buffer, 10);                              // convert integer to string
+        string_width = tft.textWidth(buffer);                      // get string width
+        tft.drawString(buffer, text_x - string_width / 2, text_y); // draw text - tickmark value
+
+        // draw large tickmark
+        line_x = sin(radians(angle)) * RADIUS_LARGE + center_x;    // calculate x pos for the line end
+        line_y = -cos(radians(angle)) * RADIUS_LARGE + center_y;   // calculate y pos for the line end
+        tft.drawLine(pixel_x, pixel_y, line_x, line_y, TFT_WHITE); // draw the line
+      }
+      else
+      {
+        // draw medium tickmark
+        line_x = sin(radians(angle)) * (radius_line) + center_x;   // calculate x pos for the line end
+        line_y = -cos(radians(angle)) * radius_line + center_y;    // calculate y pos for the line end
+        tft.drawLine(pixel_x, pixel_y, line_x, line_y, TFT_WHITE); // draw the line
+      }
+    }
+    else
+    {                                             // draw small tickmark == pixel tickmark
+      tft.drawPixel(pixel_x, pixel_y, TFT_WHITE); // draw a single pixel
+    }
+  }
+
+  // led
+  if (desired_temp < (degreesF - 1))
+  {
+    digitalWrite(RED_PIN, LOW);
+    digitalWrite(BLUE_PIN, HIGH);
+    digitalWrite(GREEN_PIN, HIGH);
+  }
+  else if (desired_temp > (degreesF + 1))
+  {
+    digitalWrite(RED_PIN, HIGH);
+    digitalWrite(BLUE_PIN, LOW);
+    digitalWrite(GREEN_PIN, HIGH);
+  }
+  else
+  {
+    digitalWrite(RED_PIN, LOW);
+    digitalWrite(BLUE_PIN, LOW);
+    digitalWrite(GREEN_PIN, LOW);
+  }
+
+/* display current temp on bottom */
+  tft.setTextSize(3);
+  sprintf(buffer, "%.1f%s", degreesF, " F");
+  string_width = tft.textWidth(buffer); // calculate string width
+  tft.setTextColor(TFT_WHITE);                           // set color to black
+  tft.drawString(buffer, (240 - string_width) / 2, 100); // draw the value on top of the display
+  tft.drawCircle(145, 105, 4, TFT_WHITE);                // degrees symbol
+  tft.drawCircle(145, 105, 3, TFT_WHITE);                // degrees symbol
+
+  delay(25);
 }
