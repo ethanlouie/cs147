@@ -5,9 +5,6 @@ from io import BytesIO
 from matplotlib.figure import Figure
 import csv_test
 
-# Global Variables
-
-
 # print public IP address
 ip = get('https://api.ipify.org').text
 print(f'\nPUBLIC IP: {ip}\n')
