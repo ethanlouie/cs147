@@ -1,5 +1,7 @@
 #include <Arduino.h>
 #include <stdio.h>
+float old_desired_temp = 0;
+float old_degreesF = 0;
 
 /*
  * LED
@@ -33,6 +35,8 @@ int temp_state = 0;
 
 void manageModeState(void *parameter)
 {
+  // vTaskCoreAffinitySet(NULL, (1 << 1));
+
   button1.begin(BUTTON1_PIN);
   button2.begin(BUTTON2_PIN);
 
@@ -46,12 +50,14 @@ void manageModeState(void *parameter)
     if (button1.wasPressed())
     {
       system_state = (system_state + 1) % 3;
+      old_desired_temp = -1;
       button1.read();
     }
     button2.loop();
     if (button2.wasPressed())
     {
       fan_state = !fan_state;
+      old_degreesF = -1;
       button2.read();
     }
 
@@ -94,16 +100,17 @@ void manageModeState(void *parameter)
 Adafruit_AHTX0 aht;
 sensors_event_t humidity_event, temp_event;
 float degreesF = 0;
-float old_degreesF = 0;
 float humidity = 0;
 
 void fetchTempHumidity(void *parameter)
 {
+  // vTaskCoreAffinitySet(NULL, (1 << 1));
+
   if (!aht.begin())
   {
     Serial.println("Could not find AHT? Check wiring");
     while (1)
-      delay(10);
+      vTaskDelay(10);
   }
   Serial.println("AHT10 or AHT20 found");
 
@@ -113,7 +120,7 @@ void fetchTempHumidity(void *parameter)
     degreesF = 32 + (temp_event.temperature * 1.8);
     humidity = humidity_event.relative_humidity;
 
-    vTaskDelay(200);
+    vTaskDelay(500);
   }
 }
 
@@ -136,7 +143,6 @@ int RADIUS_LARGE = 205; // radius for large tickmark
 int radius_text = 205;  // radius for text
 
 float desired_temp = 0;
-float old_desired_temp = 0;
 int old_potentiometer_value = 0;
 int raw_potentiometer = 0;
 int potentiometer_value = 0;            // value from the potentiometer
@@ -156,6 +162,8 @@ byte precalculated_y_radius_pixel[180]; // lookup table to prevent expensive sin
 
 void showDisplay(void *parameter)
 {
+  // vTaskCoreAffinitySet(NULL, (1 << 1));
+
   pinMode(POTENTIOMETER_PIN, INPUT);
 
   tft.begin();
@@ -220,8 +228,29 @@ void showDisplay(void *parameter)
 
       tft.setTextColor(TFT_BLACK);                         // set color to black
       tft.drawString(buffer, (240 - string_width) / 2, 2); // draw the value on top of the display
+
+      // system state
+      if (system_state == 0)
+      {
+        sprintf(buffer, "%s", "OFF");
+      }
+      else if (system_state == 1)
+      {
+        sprintf(buffer, "%s", "MANUAL");
+      }
+      else if (system_state == 2)
+      {
+        sprintf(buffer, "%s", "PREDICTIVE");
+      }
+      tft.setTextColor(TFT_WHITE); // set color to black
+      tft.setTextSize(1);
+      string_height = tft.fontHeight();
+      tft.fillRect(0, 0, string_width + 2, string_height + 2, TFT_BLACK);
+      tft.drawString(buffer, 2, 2);
     }
 
+    tft.setTextSize(3);
+    string_height = tft.fontHeight();
     /* Bottom Current Temp */
     if ((int)(old_degreesF * 10) != (int)(degreesF * 10))
     {
@@ -234,10 +263,24 @@ void showDisplay(void *parameter)
       tft.drawCircle(145, 138 - string_height, 4, TFT_WHITE);              // degrees symbol
       tft.drawCircle(145, 138 - string_height, 3, TFT_WHITE);              // degrees symbol
 
-      tft.setTextColor(TFT_WHITE);                                           // set color to black
-      tft.drawString(buffer, (240 - string_width) / 2, 133 - string_height); // draw the value on top of the display
+      tft.drawString(buffer, (240 - string_width) / 2, 133 - string_height); // draw the value on bottom of the display
+
+      // Fan indicator
+      if (fan_state)
+      {
+        sprintf(buffer, "%s", "FAN ON");
+      }
+      else
+      {
+        sprintf(buffer, "%s", "AUTO");
+      }
+      tft.setTextSize(1);
+      string_height = tft.fontHeight();
+      tft.drawString(buffer, 2, 133 - string_height);
     }
 
+    tft.setTextSize(3);
+    string_height = tft.fontHeight();
     /* Tickmarks and Numbers */
     tft.fillRect(0, string_height + 9, 240, 126 - (string_height + 2) * 2, TFT_BLACK); // partially clear screen
     tft.setTextColor(TFT_WHITE);                                                       // set color to black
@@ -286,122 +329,70 @@ void showDisplay(void *parameter)
  * POST request containing
  *   tempurature
  *   humidity
- *   Energy Usage of system = (system_state && (temp_state + bool(temp_state)) + (fan_state && !temp_state)
+ *   Energy Usage of system = (system_state && (temp_state + bool(temp_state))) + (fan_state && !temp_state)
  *     0 = No Power Usage
- *     1 = Fan Only
- *     2 = Cooling + Fan
- *     3 = Heating + Fan
+ *     1 = Cooling
+ *     2 = Heating
  */
+
 #include <WiFi.h>
-#include <HttpClient.h>
-WiFiClient c;
-HttpClient http(c);
-char ssid[] = "Packet_Dispensary";       // your network SSID (name)
-char pass[] = "passwordalllowercase";    // your network password (use for WPA, or use as key for WEP)
-const char kHostname[] = "192.168.1.14"; // 13.57.25.227";
-char tempStr[] = "/?temp=";
-char humidStr[] = "&humidity=";
-// Number of milliseconds to wait without receiving any data before we give up
-const int kNetworkTimeout = 30 * 1000;
-// Number of milliseconds to wait if no data is available before trying again
-const int kNetworkDelay = 1000;
+#include <WiFiMulti.h>
+#include <HTTPClient.h>
+char kPath[50];
+char ip[] = "192.168.125.145";
+int state = -1;
+WiFiMulti wifiMulti;
 
 void wifiUpload(void *parameter)
 {
-  // We start by connecting to a WiFi network
-  delay(1000);
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
+  // vTaskCoreAffinitySet(NULL, (1 << 0));
 
-  WiFi.begin(ssid, pass);
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("WiFi connected");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
-  Serial.print("MAC address: ");
-  Serial.println(WiFi.macAddress());
+  wifiMulti.addAP("Pixel_7807", "ethanalllowercase");
+  wifiMulti.addAP("UCInet Mobile Access", "");
+  wifiMulti.addAP("Packet_Dispensary", "passwordalllowercase");
 
   for (;;)
   {
-    // format kPath
-    char kPath[50];
-    sprintf(kPath, "/?temp=%.1f&humidity=%f", degreesF, humidity);
-    Serial.print(kPath);
+    state = bool(system_state) * temp_state;
 
-    int err = 0;
-    err = http.get(kHostname, 5000, kPath);
-    if (err == 0)
+    // wait for WiFi connection
+    if ((wifiMulti.run() == WL_CONNECTED))
     {
-      Serial.println("startedRequest ok");
+      HTTPClient http;
 
-      err = http.responseStatusCode();
-      if (err >= 0)
+      Serial.print("[HTTP] begin...\n");
+      // configure traged server and url
+      sprintf(kPath, "http://%s:5000/data?temp=%.1f&humidity=%.2f&state=%i", ip, degreesF, humidity, state);
+      Serial.print(kPath);
+
+      http.begin(kPath); // HTTP
+
+      Serial.print("[HTTP] GET...\n");
+      // start connection and send HTTP header
+      int httpCode = http.GET();
+
+      // httpCode will be negative on error
+      if (httpCode > 0)
       {
-        Serial.print("Got status code: ");
-        Serial.println(err);
+        // HTTP header has been send and Server response header has been handled
+        Serial.printf("[HTTP] GET... code: %d\n", httpCode);
 
-        // Usually you'd check that the response code is 200 or a
-        // similar "success" code (200-299) before carrying on,
-        // but we'll print out whatever response we get
-
-        err = http.skipResponseHeaders();
-        if (err >= 0)
+        // file found at server
+        if (true)
         {
-          int bodyLen = http.contentLength();
-          Serial.print("Content length is: ");
-          Serial.println(bodyLen);
-          Serial.println();
-          Serial.println("Body returned follows:");
-
-          // Now we've got to the body, so we can print it out
-          unsigned long timeoutStart = millis();
-          char c;
-          // Whilst we haven't timed out & haven't reached the end of the body
-          while ((http.connected() || http.available()) &&
-                 ((millis() - timeoutStart) < kNetworkTimeout))
-          {
-            if (http.available())
-            {
-              c = http.read();
-              // Print out this character
-              Serial.print(c);
-
-              bodyLen--;
-              // We read something, reset the timeout counter
-              timeoutStart = millis();
-            }
-            else
-            {
-              // We haven't got any data, so let's pause to allow some to
-              // arrive
-              delay(kNetworkDelay);
-            }
-          }
-        }
-        else
-        {
-          Serial.print("Failed to skip response headers: ");
-          Serial.println(err);
+          String payload = http.getString();
+          Serial.println(payload);
         }
       }
       else
       {
-        Serial.print("Getting response failed: ");
-        Serial.println(err);
+        Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
       }
-    }
-    else
-    {
-      Serial.print("Connect failed: ");
-      Serial.println(err);
-    }
 
-    http.stop();
+      http.end();
+    }
+    // taskEXIT_CRITICAL();
+
     vTaskDelay(5000);
   }
 }
@@ -416,7 +407,7 @@ void setup()
   xTaskCreate(
       fetchTempHumidity,    // Function that should be called
       "temp/humidity task", // Name of the task (for debugging)
-      1300,                 // Stack size (bytes)
+      1500,                 // Stack size (bytes)
       NULL,                 // Parameter to pass
       2,                    // Task priority
       NULL                  // Task handle
@@ -445,9 +436,10 @@ void setup()
       "wifi task", // Name of the task (for debugging)
       3000,        // Stack size (bytes)
       NULL,        // Parameter to pass
-      1,           // Task priority
+      15,          // Task priority
       NULL         // Task handle
   );
+   vTaskDelete(NULL);
 }
 
-void loop() {}
+void loop() { }

@@ -183,13 +183,13 @@ def get_schedule():
 
 @app.route("/data", methods=["GET"])
 def process_data():
-	temp = request.form.get("temp")
-	humidity = request.form.get("humidity")
-	state = request.form.get("state")
+	temp = request.args.get("temp")
+	humidity = request.args.get("humidity")
+	state = request.args.get("state")
 	cur = conn.cursor()
 
 	# cur.execute("INSERT INTO sensor_data VALUES (datetime('now'), {0}, {1}".format(temp, humidity))
-	cur.execute("INSERT INTO sensor_data VALUES (datetime('now', '-7 day'), (?), (?), (?))", (temp, humidity, state))
+	cur.execute("INSERT INTO sensor_data VALUES (datetime('now'), (?), (?), (?))", (temp, humidity, state))
 	conn.commit()
 
 	return {
@@ -221,7 +221,7 @@ def hello2():
 
     # Generate the figure **without using pyplot**.
 	fig = Figure()
-	ax = fig.subplots()
+	ax = fig.subplots() # use arguments to make 2x2 grid
 	print(df['timestamp'][0])
 	ax.plot(df['timestamp'], df['temp'])
 	ax.set_xlabel('Time')
