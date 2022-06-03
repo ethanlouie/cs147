@@ -1,5 +1,5 @@
 from requests import get
-from flask import Flask, request
+from flask import Flask, request, render_template
 import json
 from apscheduler.schedulers.background import BackgroundScheduler
 import sqlite3 as lite
@@ -10,11 +10,99 @@ from io import BytesIO
 import base64
 import pandas as pd
 from time import time
+import datetime
+
+starting_timestamp = int(time())
+schedule = {}
 
 
 # print public IP address
 ip = get('https://api.ipify.org').text
 print(f'\nPUBLIC IP: {ip}\n')
+
+#assume 0.5 degree loss in either direction always
+#assume 1 degree heating/cooling per half hour
+#if cold now and get hot during day but want cold, optimize towards min
+#if cold now and get colder during day but want cold, do nothing, but heat sometimes
+#if cold now and get hot during day but want hot, do nothing but cool sometimes
+#if cold now and get colder during day but want hot, optimize towards max
+
+def calculate_optimal_schedule(weather_data: json = None):
+	global schedule
+	global min
+	global max
+	schedule = {}
+	if weather_data == None:
+		with open ('weather.json', 'r') as file:
+			weather_data = json.load(file)
+		
+	offset = weather_data["hourly"][0]["dt"]
+	resp = cur.execute("SELECT * FROM sensor_data ORDER BY timestamp DESC LIMIT 1;")
+	row = resp.fetchone()
+	print(row)
+	print(row[0])
+	print(row[1])
+	res = [(hour['dt'], hour['temp']) for hour in weather_data["hourly"]]
+	warm = (res[len(res)//2][1] > res[0][1] or res[len(res)//2+1][1] > res[0][1])
+
+	stop = (max-min) * 3600
+	#stop = min(3600 * 4, (max-min) * 3600)
+	stop //= 12 
+	begin_countdown = False
+
+	current_temp = row[1]
+
+
+	#simplify for prototype
+	if warm: #optimize towards min
+		for time, temp in res:
+			for i in range(12):
+				_5_min = time + i * 300
+				if begin_countdown == True:
+					if stop == 0:
+						begin_countdown = False
+						stop = (max-min) * 3600
+						stop //= 12 
+					else:
+						stop -= 1
+					schedule[_5_min] = 0
+					continue
+				if current_temp > min:
+					schedule[_5_min] = 1
+					current_temp -= 1 * 2 / 12
+				else:
+					schedule[_5_min] = 0
+					begin_countdown = True
+
+	
+
+	else: #optimize towards max since cold
+		for time, temp in res:
+			for i in range(12):
+				_5_min = time + i * 300
+				if begin_countdown == True:
+					if stop == 0:
+						begin_countdown = False
+						stop = (max-min) * 3600
+						stop //= 12 
+					else:
+						stop -= 1
+					schedule[_5_min] = 0
+					continue
+				if current_temp < max:
+					schedule[_5_min] = 1
+					current_temp += 1 * 2 / 12
+				else:
+					schedule[_5_min] = 0
+					begin_countdown = True
+
+
+	print(schedule)
+
+
+		
+
+
 
 
 #for now, storing in json as proof of concept
@@ -37,6 +125,8 @@ def fetch_daily_weather():
 	out_file.close()
 
 
+
+
 scheduler = BackgroundScheduler(timezone="America/Los_Angeles")
 job = scheduler.add_job(fetch_daily_weather, 'cron', hour=0, minute=1)
 scheduler.start()
@@ -49,16 +139,49 @@ conn.commit()
 
 # Flask Server
 app = Flask(__name__)
+min = 0
+max = 100
+with open("min_file.txt", "r") as m:
+	min = int(m.readline())
+
+with open("max_file.txt", "r") as m:
+	max = int(m.readline())
+
 
 
 @app.route("/")
 def hello():
-	print(request.args.get("temp"))
-	print(request.args.get("humidity"))
-	return "We received temp: "+str(request.args.get("temp")) + ', humidity: ' +str(request.args.get("humidity"))
+	return render_template("index.html", min=min, max=max)
+	# print(request.args.get("temp"))
+	# print(request.args.get("humidity"))
+	# return "We received temp: "+str(request.args.get("temp")) + ', humidity: ' +str(request.args.get("humidity"))
+
+@app.route("/update_pref")
+def update_preferences():
+	global min
+	global max
+	temp_min = request.args.get("min")
+	temp_max = request.args.get("max")
+
+	if temp_max > temp_min:
+
+		with open("min_file.txt", "w+") as m:
+			min = temp_min
+			m.write(min)
+
+		with open("max_file.txt", "w+") as m:
+			max = temp_max
+			m.write(max)
+
+	return render_template("index.html", min=min, max=max)
+
+@app.route("/schedule")
+def get_schedule():
+	return schedule
+	
 
 
-@app.route("/data", methods=["POST"])
+@app.route("/data", methods=["GET"])
 def process_data():
 	temp = request.form.get("temp")
 	humidity = request.form.get("humidity")

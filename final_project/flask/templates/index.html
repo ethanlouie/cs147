@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+  <head>
+    <meta charset="utf-8">
+    <title>121 Assignment 3 Search Engine</title>
+
+
+  </head>
+  <body>
+
+    <h1>Search Web Component</h1>
+
+
+
+
+    <form action="{{ url_for("update_preferences")}}" method="get">
+    <!-- <label for="query">Query</label> -->
+    <!-- <input type="text" id="query_box" name="query" placeholder="Search Query" ></input> -->
+
+    <input type="text" id="min_box" name="min" placeholder="Update minimum temperature preferences" value="{{ min }}" autocomplete="off"></input>
+    <input type="text" id="max_box" name="max" placeholder="Update maximum temperature preferences" value="{{ max }}" autocomplete="off"></input>
+
+    <button type="submit" onclick="">Update</button>
+
+    <br>
+
+
+    {% if query != null %}
+
+
+      <embed src="/stats" results= type="image/html"/>
+
+    {% endif %}
+
+
+
+  </body>
+</html>
